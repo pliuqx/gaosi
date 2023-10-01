@@ -74,8 +74,7 @@ class CLIPCameraProjection(ModelMixin, ConfigMixin):
         Returns:
             The output embedding projection (`torch.FloatTensor` of shape `(batch_size, output_dim)`).
         """
-        proj_embedding = self.proj(embedding)
-        return proj_embedding
+        return self.proj(embedding)
 
 
 class Zero123Pipeline(DiffusionPipeline):
@@ -200,7 +199,6 @@ class Zero123Pipeline(DiffusionPipeline):
                 cpu_offload(cpu_offloaded_model, device)
 
     @property
-    # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline._execution_device
     def _execution_device(self):
         r"""
         Returns the device on which the pipeline's models will be executed. After calling
@@ -209,14 +207,18 @@ class Zero123Pipeline(DiffusionPipeline):
         """
         if not hasattr(self.unet, "_hf_hook"):
             return self.device
-        for module in self.unet.modules():
-            if (
-                hasattr(module, "_hf_hook")
-                and hasattr(module._hf_hook, "execution_device")
-                and module._hf_hook.execution_device is not None
-            ):
-                return torch.device(module._hf_hook.execution_device)
-        return self.device
+        return next(
+            (
+                torch.device(module._hf_hook.execution_device)
+                for module in self.unet.modules()
+                if (
+                    hasattr(module, "_hf_hook")
+                    and hasattr(module._hf_hook, "execution_device")
+                    and module._hf_hook.execution_device is not None
+                )
+            ),
+            self.device,
+        )
 
     def _encode_image(
         self,
@@ -358,9 +360,10 @@ class Zero123Pipeline(DiffusionPipeline):
                 f"`height` and `width` have to be divisible by 8 but are {height} and {width}."
             )
 
-        if (callback_steps is None) or (
-            callback_steps is not None
-            and (not isinstance(callback_steps, int) or callback_steps <= 0)
+        if (
+            callback_steps is None
+            or not isinstance(callback_steps, int)
+            or callback_steps <= 0
         ):
             raise ValueError(
                 f"`callback_steps` has to be a positive integer but is {callback_steps} of type"
@@ -432,18 +435,17 @@ class Zero123Pipeline(DiffusionPipeline):
             # but zero123 was not trained this way
             image_pt = self.vae.encode(image_pt).latent_dist.mode()
             image_pt = image_pt.repeat_interleave(num_images_per_prompt, dim=0)
-        if do_classifier_free_guidance:
-            latent_model_input = torch.cat(
+        return (
+            torch.cat(
                 [
                     torch.cat([latents, latents], dim=0),
                     torch.cat([torch.zeros_like(image_pt), image_pt], dim=0),
                 ],
                 dim=1,
             )
-        else:
-            latent_model_input = torch.cat([latents, image_pt], dim=1)
-
-        return latent_model_input
+            if do_classifier_free_guidance
+            else torch.cat([latents, image_pt], dim=1)
+        )
 
     @torch.no_grad()
     def __call__(
@@ -555,7 +557,7 @@ class Zero123Pipeline(DiffusionPipeline):
         do_classifier_free_guidance = guidance_scale > 1.0
 
         # 3. Encode input image
-        if isinstance(image, PIL.Image.Image) or isinstance(image, list):
+        if isinstance(image, (PIL.Image.Image, list)):
             pil_image = image
         elif isinstance(image, torch.Tensor):
             pil_image = [TF.to_pil_image(image[i]) for i in range(image.shape[0])]
@@ -638,7 +640,7 @@ class Zero123Pipeline(DiffusionPipeline):
                     if callback is not None and i % callback_steps == 0:
                         callback(i, t, latents)
 
-        if not output_type == "latent":
+        if output_type != "latent":
             image = self.vae.decode(
                 latents / self.vae.config.scaling_factor, return_dict=False
             )[0]

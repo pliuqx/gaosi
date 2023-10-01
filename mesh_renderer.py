@@ -16,11 +16,10 @@ def scale_img_nhwc(x, size, mag='bilinear', min='bilinear'):
     y = x.permute(0, 3, 1, 2) # NHWC -> NCHW
     if x.shape[1] > size[0] and x.shape[2] > size[1]: # Minification, previous size was bigger
         y = torch.nn.functional.interpolate(y, size, mode=min)
-    else: # Magnification
-        if mag == 'bilinear' or mag == 'bicubic':
-            y = torch.nn.functional.interpolate(y, size, mode=mag, align_corners=True)
-        else:
-            y = torch.nn.functional.interpolate(y, size, mode=mag)
+    elif mag in ['bilinear', 'bicubic']:
+        y = torch.nn.functional.interpolate(y, size, mode=mag, align_corners=True)
+    else:
+        y = torch.nn.functional.interpolate(y, size, mode=mag)
     return y.permute(0, 2, 3, 1).contiguous() # NCHW -> NHWC
 
 def scale_img_hwc(x, size, mag='bilinear', min='bilinear'):
@@ -84,15 +83,9 @@ class Renderer(nn.Module):
             w = make_divisible(w0 * ssaa, 8)
         else:
             h, w = h0, w0
-        
-        results = {}
 
         # get v
-        if self.opt.train_geo:
-            v = self.mesh.v + self.v_offsets # [N, 3]
-        else:
-            v = self.mesh.v
-
+        v = self.mesh.v + self.v_offsets if self.opt.train_geo else self.mesh.v
         pose = torch.from_numpy(pose.astype(np.float32)).to(v.device)
         proj = torch.from_numpy(proj.astype(np.float32)).to(v.device)
 
@@ -116,7 +109,7 @@ class Renderer(nn.Module):
 
             face_normals = torch.cross(v1 - v0, v2 - v0)
             face_normals = safe_normalize(face_normals)
-            
+
             vn = torch.zeros_like(v)
             vn.scatter_add_(0, i0[:, None].repeat(1,3), face_normals)
             vn.scatter_add_(0, i1[:, None].repeat(1,3), face_normals)
@@ -125,7 +118,7 @@ class Renderer(nn.Module):
             vn = torch.where(torch.sum(vn * vn, -1, keepdim=True) > 1e-20, vn, torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32, device=vn.device))
         else:
             vn = self.mesh.vn
-        
+
         normal, _ = dr.interpolate(vn.unsqueeze(0).contiguous(), rast, self.mesh.fn)
         normal = safe_normalize(normal[0])
 
@@ -145,7 +138,7 @@ class Renderer(nn.Module):
             normal = scale_img_hwc(normal, (h0, w0))
             viewcos = scale_img_hwc(viewcos, (h0, w0))
 
-        results['image'] = albedo.clamp(0, 1)
+        results = {'image': albedo.clamp(0, 1)}
         results['alpha'] = alpha
         results['depth'] = depth
         results['normal'] = (normal + 1) / 2

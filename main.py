@@ -128,16 +128,16 @@ class GUI:
 
         # lazy load guidance model
         if self.guidance_sd is None and self.enable_sd:
-            print(f"[INFO] loading SD...")
+            print("[INFO] loading SD...")
             from guidance.sd_utils import StableDiffusion
             self.guidance_sd = StableDiffusion(self.device)
-            print(f"[INFO] loaded SD!")
+            print("[INFO] loaded SD!")
 
         if self.guidance_zero123 is None and self.enable_zero123:
-            print(f"[INFO] loading zero123...")
+            print("[INFO] loading zero123...")
             from guidance.zero123_utils import Zero123
             self.guidance_zero123 = Zero123(self.device)
-            print(f"[INFO] loaded zero123!")
+            print("[INFO] loaded zero123!")
 
         # input image
         if self.input_img is not None:
@@ -161,6 +161,8 @@ class GUI:
         ender = torch.cuda.Event(enable_timing=True)
         starter.record()
 
+        radius = 0
+
         for _ in range(self.train_steps):
 
             self.step += 1
@@ -178,11 +180,11 @@ class GUI:
 
                 # rgb loss
                 image = out["image"].unsqueeze(0) # [1, 3, H, W] in [0, 1]
-                loss = loss + 10000 * step_ratio * F.mse_loss(image, self.input_img_torch)
+                loss += 10000 * step_ratio * F.mse_loss(image, self.input_img_torch)
 
                 # mask loss
                 mask = out["alpha"].unsqueeze(0) # [1, 1, H, W] in [0, 1]
-                loss = loss + 1000 * step_ratio * F.mse_loss(mask, self.input_mask_torch)
+                loss += 1000 * step_ratio * F.mse_loss(mask, self.input_mask_torch)
 
             ### novel view (manual batch)
             render_resolution = 128 if step_ratio < 0.3 else (256 if step_ratio < 0.6 else 512)
@@ -196,8 +198,6 @@ class GUI:
                 # render random view
                 ver = np.random.randint(min_ver, max_ver)
                 hor = np.random.randint(-180, 180)
-                radius = 0
-
                 vers.append(ver)
                 hors.append(hor)
                 radii.append(radius)
@@ -219,7 +219,7 @@ class GUI:
 
                 image = out["image"].unsqueeze(0)# [1, 3, H, W] in [0, 1]
                 images.append(image)
-            
+
             images = torch.cat(images, dim=0)
 
             # import kiui
@@ -228,11 +228,13 @@ class GUI:
 
             # guidance loss
             if self.enable_sd:
-                loss = loss + self.opt.lambda_sd * self.guidance_sd.train_step(images, step_ratio)
+                loss += self.opt.lambda_sd * self.guidance_sd.train_step(images, step_ratio)
 
             if self.enable_zero123:
-                loss = loss + self.opt.lambda_zero123 * self.guidance_zero123.train_step(images, vers, hors, radii, step_ratio)
-            
+                loss += self.opt.lambda_zero123 * self.guidance_zero123.train_step(
+                    images, vers, hors, radii, step_ratio
+                )
+
             # optimize step
             loss.backward()
             self.optimizer.step()
@@ -247,7 +249,7 @@ class GUI:
                 if self.step % self.opt.densification_interval == 0:
                     # size_threshold = 20 if self.step > self.opt.opacity_reset_interval else None
                     self.renderer.gaussians.densify_and_prune(self.opt.densify_grad_threshold, min_opacity=0.01, extent=0.5, max_screen_size=1)
-                
+
                 if self.step % self.opt.opacity_reset_interval == 0:
                     self.renderer.gaussians.reset_opacity()
 
@@ -301,8 +303,8 @@ class GUI:
 
             if self.mode in ['depth', 'alpha']:
                 buffer_image = buffer_image.repeat(3, 1, 1)
-                if self.mode == 'depth':
-                    buffer_image = (buffer_image - buffer_image.min()) / (buffer_image.max() - buffer_image.min() + 1e-20)
+            if self.mode == 'depth':
+                buffer_image = (buffer_image - buffer_image.min()) / (buffer_image.max() - buffer_image.min() + 1e-20)
 
             buffer_image = F.interpolate(
                 buffer_image.unsqueeze(0),
@@ -370,16 +372,16 @@ class GUI:
     def save_model(self, mode='geo', texture_size=1024):
         os.makedirs(self.opt.outdir, exist_ok=True)
         if mode == 'geo':
-            path = os.path.join(self.opt.outdir, self.opt.save_path + '_mesh.ply')
+            path = os.path.join(self.opt.outdir, f'{self.opt.save_path}_mesh.ply')
             mesh = self.renderer.gaussians.extract_mesh(path, self.opt.density_thresh)
             mesh.write_ply(path)
 
         elif mode == 'geo+tex':
-            path = os.path.join(self.opt.outdir, self.opt.save_path + '_mesh.obj')
+            path = os.path.join(self.opt.outdir, f'{self.opt.save_path}_mesh.obj')
             mesh = self.renderer.gaussians.extract_mesh(path, self.opt.density_thresh)
 
             # perform texture extraction
-            print(f"[INFO] unwrap uv...")
+            print("[INFO] unwrap uv...")
             h = w = texture_size
             mesh.auto_uv()
             mesh.auto_normal()
@@ -415,7 +417,7 @@ class GUI:
                     self.cam.near,
                     self.cam.far,
                 )
-                
+
                 cur_out = self.renderer.render(cur_cam)
 
                 rgbs = cur_out["image"].unsqueeze(0) # [1, 3, H, W] in [0, 1]
@@ -425,7 +427,7 @@ class GUI:
                 #     rgbs = self.guidance.refine(rgbs, [ver], [hor], [0])
                     # import kiui
                     # kiui.vis.plot_image(rgbs)
-                    
+
                 # get coordinate in texture image
                 pose = torch.from_numpy(pose.astype(np.float32)).to(self.device)
                 proj = torch.from_numpy(self.cam.perspective.astype(np.float32)).to(self.device)
@@ -454,7 +456,7 @@ class GUI:
 
                 uvs = uvs.view(-1, 2).clamp(0, 1)[mask]
                 rgbs = rgbs.view(3, -1).permute(1, 0)[mask].contiguous()
-                
+
                 # update texture image
                 cur_albedo, cur_cnt = mipmap_linear_grid_put_2d(
                     h, w,
@@ -463,7 +465,7 @@ class GUI:
                     min_resolution=256,
                     return_count=True,
                 )
-                
+
                 # albedo += cur_albedo
                 # cnt += cur_cnt
                 mask = cnt.squeeze(-1) < 0.1
@@ -503,7 +505,7 @@ class GUI:
             mesh.write(path)
 
         else:
-            path = os.path.join(self.opt.outdir, self.opt.save_path + '_model.ply')
+            path = os.path.join(self.opt.outdir, f'{self.opt.save_path}_model.ply')
             self.renderer.gaussians.save_ply(path)
 
         print(f"[INFO] save model to {path}.")
@@ -854,7 +856,7 @@ class GUI:
     def train(self, iters=500):
         if iters > 0:
             self.prepare_train()
-            for i in tqdm.trange(iters):
+            for _ in tqdm.trange(iters):
                 self.train_step()
             # do a last prune
             self.renderer.gaussians.prune(min_opacity=0.01, extent=1, max_screen_size=1)

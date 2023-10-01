@@ -3,8 +3,7 @@ import torch.nn.functional as F
 
 def stride_from_shape(shape):
     stride = [1]
-    for x in reversed(shape[1:]):
-        stride.append(stride[-1] * x) 
+    stride.extend(stride[-1] * x for x in reversed(shape[1:]))
     return list(reversed(stride))
 
 
@@ -279,7 +278,7 @@ def grid_put(shape, coords, values, mode='linear-mipmap', min_resolution=32, ret
     # values: [N, C]
 
     D = len(shape)
-    assert D in [2, 3], f'only support D == 2 or 3, but got D == {D}'
+    assert D in {2, 3}, f'only support D == 2 or 3, but got D == {D}'
 
     if mode == 'nearest':
         if D == 2:

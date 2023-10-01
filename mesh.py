@@ -103,7 +103,7 @@ class Mesh:
 
         if init_empty_tex or albedo_path is None or not os.path.exists(albedo_path):
             # init an empty texture
-            print(f"[load_obj] init empty albedo!")
+            print("[load_obj] init empty albedo!")
             # albedo = np.random.rand(1024, 1024, 3).astype(np.float32)
             albedo = np.ones((1024, 1024, 3), dtype=np.float32) * np.array(
                 [0.5, 0.5, 0.5]
@@ -166,12 +166,12 @@ class Mesh:
         mesh.v = torch.tensor(vertices, dtype=torch.float32, device=device)
         mesh.vt = (
             torch.tensor(texcoords, dtype=torch.float32, device=device)
-            if len(texcoords) > 0
+            if texcoords
             else None
         )
         mesh.vn = (
             torch.tensor(normals, dtype=torch.float32, device=device)
-            if len(normals) > 0
+            if normals
             else None
         )
 

@@ -93,8 +93,7 @@ class Zero123(nn.Module):
         vae_emb = self.embeddings[1].repeat(batch_size, 1, 1, 1)
         vae_emb = torch.cat([vae_emb, torch.zeros_like(vae_emb)], dim=0)
 
-        for i, t in enumerate(self.scheduler.timesteps[init_step:]):
-            
+        for t in self.scheduler.timesteps[init_step:]:
             x_in = torch.cat([latents] * 2)
             t_in = torch.cat([t.view(1)] * 2).to(self.device)
 
@@ -106,11 +105,10 @@ class Zero123(nn.Module):
 
             noise_pred_cond, noise_pred_uncond = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
-            
+
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
 
-        imgs = self.decode_latents(latents) # [1, 3, 256, 256]
-        return imgs
+        return self.decode_latents(latents)
     
     def train_step(self, pred_rgb, polar, azimuth, radius, step_ratio=None, guidance_scale=5, as_latent=False):
         # pred_rgb: tensor [1, 3, H, W] in [0, 1]
@@ -162,9 +160,7 @@ class Zero123(nn.Module):
         grad = torch.nan_to_num(grad)
 
         target = (latents - grad).detach()
-        loss = 0.5 * F.mse_loss(latents.float(), target, reduction='sum')
-
-        return loss
+        return 0.5 * F.mse_loss(latents.float(), target, reduction='sum')
     
 
     def decode_latents(self, latents):
@@ -181,10 +177,7 @@ class Zero123(nn.Module):
         imgs = 2 * imgs - 1
 
         posterior = self.vae.encode(imgs).latent_dist
-        if mode:
-            latents = posterior.mode()
-        else:
-            latents = posterior.sample() 
+        latents = posterior.mode() if mode else posterior.sample()
         latents = latents * self.vae.config.scaling_factor
 
         return latents
@@ -195,7 +188,7 @@ if __name__ == '__main__':
     import argparse
     import numpy as np
     import matplotlib.pyplot as plt
-    
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument('input', type=str)
@@ -214,10 +207,10 @@ if __name__ == '__main__':
     image = image.astype(np.float32) / 255.0
     image = torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0).contiguous().to(device)
 
-    print(f'[INFO] loading model ...')
+    print('[INFO] loading model ...')
     zero123 = Zero123(device)
 
-    print(f'[INFO] running model ...')
+    print('[INFO] running model ...')
     zero123.get_img_embeds(image)
 
     while True:

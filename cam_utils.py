@@ -37,8 +37,7 @@ def look_at(campos, target, opengl=True):
         up_vector = np.array([0, 1, 0], dtype=np.float32)
         right_vector = safe_normalize(np.cross(up_vector, forward_vector))
         up_vector = safe_normalize(np.cross(forward_vector, right_vector))
-    R = np.stack([right_vector, up_vector, forward_vector], axis=1)
-    return R
+    return np.stack([right_vector, up_vector, forward_vector], axis=1)
 
 
 # elevation & azimuth to pose (cam2world) matrix

@@ -317,9 +317,7 @@ class GaussianModel:
             f"[INFO] marching cubes result: {v.shape} ({v.min().item()}-{v.max().item()}), {f.shape}"
         )
 
-        mesh = Mesh(v=v, f=f, device='cuda')
-
-        return mesh
+        return Mesh(v=v, f=f, device='cuda')
     
     def get_covariance(self, scaling_modifier = 1):
         return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
@@ -384,15 +382,19 @@ class GaussianModel:
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
-        for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
-            l.append('f_dc_{}'.format(i))
-        for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
-            l.append('f_rest_{}'.format(i))
+        l.extend(
+            f'f_dc_{i}'
+            for i in range(self._features_dc.shape[1] * self._features_dc.shape[2])
+        )
+        l.extend(
+            f'f_rest_{i}'
+            for i in range(
+                self._features_rest.shape[1] * self._features_rest.shape[2]
+            )
+        )
         l.append('opacity')
-        for i in range(self._scaling.shape[1]):
-            l.append('scale_{}'.format(i))
-        for i in range(self._rotation.shape[1]):
-            l.append('rot_{}'.format(i))
+        l.extend(f'scale_{i}' for i in range(self._scaling.shape[1]))
+        l.extend(f'rot_{i}' for i in range(self._rotation.shape[1]))
         return l
 
     def save_ply(self, path):
@@ -488,10 +490,9 @@ class GaussianModel:
                 group["params"][0] = nn.Parameter((group["params"][0][mask].requires_grad_(True)))
                 self.optimizer.state[group['params'][0]] = stored_state
 
-                optimizable_tensors[group["name"]] = group["params"][0]
             else:
                 group["params"][0] = nn.Parameter(group["params"][0][mask].requires_grad_(True))
-                optimizable_tensors[group["name"]] = group["params"][0]
+            optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
 
     def prune_points(self, mask):
@@ -525,11 +526,9 @@ class GaussianModel:
                 group["params"][0] = nn.Parameter(torch.cat((group["params"][0], extension_tensor), dim=0).requires_grad_(True))
                 self.optimizer.state[group['params'][0]] = stored_state
 
-                optimizable_tensors[group["name"]] = group["params"][0]
             else:
                 group["params"][0] = nn.Parameter(torch.cat((group["params"][0], extension_tensor), dim=0).requires_grad_(True))
-                optimizable_tensors[group["name"]] = group["params"][0]
-
+            optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
 
     def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation):
