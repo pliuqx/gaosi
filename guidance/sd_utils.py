@@ -101,8 +101,7 @@ class StableDiffusion(nn.Module):
             max_length=self.tokenizer.model_max_length,
             return_tensors="pt",
         )
-        embeddings = self.text_encoder(inputs.input_ids.to(self.device))[0]
-        return embeddings
+        return self.text_encoder(inputs.input_ids.to(self.device))[0]
 
     @torch.no_grad()
     def refine(self, pred_rgb,
@@ -118,8 +117,7 @@ class StableDiffusion(nn.Module):
         init_step = int(steps * strength)
         latents = self.scheduler.add_noise(latents, torch.randn_like(latents), self.scheduler.timesteps[init_step])
 
-        for i, t in enumerate(self.scheduler.timesteps[init_step:]):
-    
+        for t in self.scheduler.timesteps[init_step:]:
             latent_model_input = torch.cat([latents] * 2)
 
             noise_pred = self.unet(
@@ -128,11 +126,10 @@ class StableDiffusion(nn.Module):
 
             noise_pred_uncond, noise_pred_cond = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
-            
+
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
 
-        imgs = self.decode_latents(latents) # [1, 3, 512, 512]
-        return imgs
+        return self.decode_latents(latents)
 
     def train_step(
         self,
@@ -190,9 +187,11 @@ class StableDiffusion(nn.Module):
         # grad = grad.clamp(-1, 1)
 
         target = (latents - grad).detach()
-        loss = 0.5 * F.mse_loss(latents.float(), target, reduction='sum') / latents.shape[0]
-
-        return loss
+        return (
+            0.5
+            * F.mse_loss(latents.float(), target, reduction='sum')
+            / latents.shape[0]
+        )
 
     @torch.no_grad()
     def produce_latents(
@@ -216,7 +215,7 @@ class StableDiffusion(nn.Module):
 
         self.scheduler.set_timesteps(num_inference_steps)
 
-        for i, t in enumerate(self.scheduler.timesteps):
+        for t in self.scheduler.timesteps:
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
             latent_model_input = torch.cat([latents] * 2)
             # predict the noise residual
@@ -249,9 +248,7 @@ class StableDiffusion(nn.Module):
         imgs = 2 * imgs - 1
 
         posterior = self.vae.encode(imgs).latent_dist
-        latents = posterior.sample() * self.vae.config.scaling_factor
-
-        return latents
+        return posterior.sample() * self.vae.config.scaling_factor
 
     def prompt_to_img(
         self,

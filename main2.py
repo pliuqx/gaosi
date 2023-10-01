@@ -104,23 +104,23 @@ class GUI:
         # default camera
         pose = orbit_camera(self.opt.elevation, 0, self.opt.radius)
         self.fixed_cam = (pose, self.cam.perspective)
-        
+
 
         self.enable_sd = self.opt.lambda_sd > 0 and self.prompt != ""
         self.enable_zero123 = self.opt.lambda_zero123 > 0 and self.input_img is not None
 
         # lazy load guidance model
         if self.guidance_sd is None and self.enable_sd:
-            print(f"[INFO] loading SD...")
+            print("[INFO] loading SD...")
             from guidance.sd_utils import StableDiffusion
             self.guidance_sd = StableDiffusion(self.device)
-            print(f"[INFO] loaded SD!")
+            print("[INFO] loaded SD!")
 
         if self.guidance_zero123 is None and self.enable_zero123:
-            print(f"[INFO] loading zero123...")
+            print("[INFO] loading zero123...")
             from guidance.zero123_utils import Zero123
             self.guidance_zero123 = Zero123(self.device)
-            print(f"[INFO] loaded zero123!")
+            print("[INFO] loaded zero123!")
 
         # input image
         if self.input_img is not None:
@@ -150,6 +150,10 @@ class GUI:
         starter.record()
 
 
+        ### novel view (manual batch)
+        render_resolution = 512
+        radius = 0
+
         for _ in range(self.train_steps):
 
             self.step += 1
@@ -166,10 +170,11 @@ class GUI:
                 # rgb loss
                 image = out["image"] # [H, W, 3] in [0, 1]
                 valid_mask = ((out["alpha"] > 0) & (out["viewcos"] > 0.5)).detach()
-                loss = loss + F.mse_loss(image * valid_mask, self.input_img_torch_channel_last * valid_mask)
+                loss += F.mse_loss(
+                    image * valid_mask,
+                    self.input_img_torch_channel_last * valid_mask,
+                )
 
-            ### novel view (manual batch)
-            render_resolution = 512
             images = []
             vers, hors, radii = [], [], []
             # avoid too large elevation (> 80 or < -80), and make sure it always cover [-30, 30]
@@ -180,8 +185,6 @@ class GUI:
                 # render random view
                 ver = np.random.randint(min_ver, max_ver)
                 hor = np.random.randint(-180, 180)
-                radius = 0
-
                 vers.append(ver)
                 hors.append(hor)
                 radii.append(radius)
@@ -196,7 +199,7 @@ class GUI:
                 image = image.permute(2,0,1).contiguous().unsqueeze(0) # [1, 3, H, W] in [0, 1]
 
                 images.append(image)
-            
+
             images = torch.cat(images, dim=0)
 
             # import kiui
@@ -263,11 +266,11 @@ class GUI:
 
             if self.mode in ['depth', 'alpha']:
                 buffer_image = buffer_image.repeat(1, 1, 3)
-                if self.mode == 'depth':
-                    buffer_image = (buffer_image - buffer_image.min()) / (buffer_image.max() - buffer_image.min() + 1e-20)
+            if self.mode == 'depth':
+                buffer_image = (buffer_image - buffer_image.min()) / (buffer_image.max() - buffer_image.min() + 1e-20)
 
             self.buffer_image = buffer_image.contiguous().clamp(0, 1).detach().cpu().numpy()
-            
+
             # display input_image
             if self.overlay_input_img and self.input_img is not None:
                 self.buffer_image = (
@@ -319,8 +322,8 @@ class GUI:
     
     def save_model(self):
         os.makedirs(self.opt.outdir, exist_ok=True)
-    
-        path = os.path.join(self.opt.outdir, self.opt.save_path + '.obj')
+
+        path = os.path.join(self.opt.outdir, f'{self.opt.save_path}.obj')
         self.renderer.export_mesh(path)
 
         print(f"[INFO] save model to {path}.")
@@ -638,7 +641,7 @@ class GUI:
     def train(self, iters=500):
         if iters > 0:
             self.prepare_train()
-            for i in tqdm.trange(iters):
+            for _ in tqdm.trange(iters):
                 self.train_step()
         # save
         self.save_model()
@@ -657,7 +660,7 @@ if __name__ == "__main__":
 
     # auto find mesh from stage 1
     if opt.mesh is None:
-        default_path = os.path.join(opt.outdir, opt.save_path + '_mesh.obj')
+        default_path = os.path.join(opt.outdir, f'{opt.save_path}_mesh.obj')
         if os.path.exists(default_path):
             opt.mesh = default_path
         else:
